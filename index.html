@@ -229,7 +229,7 @@
 
   async function fetchDataAndUpdateMap() {
   try {
-    const response = await fetch('http://localhost:5000/api/occupancy');
+    const response = await fetch('/api/occupancy');
     const data = await response.json();
     console.log("📦 Data received from API:", data);
     updateMap(data);
