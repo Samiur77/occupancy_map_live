@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: occupancy-map
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: DB_DRIVER
+        value: ODBC Driver 17 for SQL Server
+      - key: DB_SERVER
+        value: localhost
+      - key: DB_DATABASE
+        sync: false
+      - key: DB_UID
+        sync: false
+      - key: DB_PWD
+        sync: false 

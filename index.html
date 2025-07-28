@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Occupancy Heatmap</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+  <!-- Add car and parking icons -->
+  <link rel="preload" as="image" href="https://cdn-icons-png.flaticon.com/512/744/744465.png">
+  <link rel="preload" as="image" href="https://cdn-icons-png.flaticon.com/512/565/565547.png">
+
+  <style>
+    body, html { margin: 0; height: 100%; }
+    #map { height: calc(100vh - 80px); }
+    #analytics {
+      background: #f8f8f8;
+      padding: 10px 16px;
+      border-bottom: 1px solid #ddd;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .customer-name {
+      font-weight: bold;
+      color: #333;
+      font-size: 16px;
+    }
+    .legend {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      background: white;
+      padding: 12px 14px;
+      border-radius: 8px;
+      box-shadow: 0 0 6px rgba(0,0,0,0.3);
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+      z-index: 999;
+    }
+    .legend h4 {
+      margin: 0 0 6px;
+      font-size: 14px;
+      font-weight: bold;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .legend-color {
+      width: 16px;
+      height: 16px;
+      margin-right: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      border: 1px solid #555;
+    }
+    .green { background: green; }
+    .red { background: red; }
+    .gray { background: gray; }
+
+    .gradient-bar {
+      height: 12px;
+      width: 100%;
+      background: linear-gradient(to right, lightgreen, yellow, orange, red);
+      margin-top: 6px;
+      border: 1px solid #aaa;
+      border-radius: 4px;
+    }
+    .gradient-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      margin-top: 2px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- 📊 Analytics Summary -->
+<div id="analytics">
+  <div>
+    <strong>Live Occupancy Heatmap</strong> — <span id="summary">Loading...</span>
+  </div>
+  <div class="customer-name" id="customerName">Loading...</div>
+</div>
+
+<!-- 🗺️ Main Map -->
+<div id="map"></div>
+
+<!-- 📌 Legend -->
+<div class="legend">
+  <h4>Legend</h4>
+  <div class="legend-item"><span class="legend-color green"></span>Vacant Bay</div>
+  <div class="legend-item"><span class="legend-color red"></span>Occupied Bay</div>
+  <div class="legend-item"><span class="legend-color gray"></span>Undetermined Bay</div>
+  <div style="margin-top: 8px;">
+    <div><strong>Occupancy Intensity</strong></div>
+    <div class="gradient-bar"></div>
+    <div class="gradient-labels">
+      <span>Low</span><span>High</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  const map = L.map('map', {
+    minZoom: 10,
+    maxZoom: 22
+  });
+
+  // ✅ Light-colored tiles for better visibility
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; <a href="https://carto.com/">CARTO</a> contributors'
+  }).addTo(map);
+
+  let heatLayerRed, heatLayerGreen, markers = [];
+
+  function getMarkerColor(status) {
+    if (status === "vacant") return "green";
+    if (status === "occupied") return "red";
+    return "gray";
+  }
+
+  function updateMap(data) {
+    if (!Array.isArray(data)) return;
+
+    if (heatLayerRed) map.removeLayer(heatLayerRed);
+    if (heatLayerGreen) map.removeLayer(heatLayerGreen);
+    markers.forEach(marker => map.removeLayer(marker));
+    markers = [];
+
+    const occupiedHeat = [], vacantHeat = [], bounds = [];
+    let total = 0, occupied = 0, vacant = 0;
+    let customerName = '';
+
+    // Define custom icons
+    const carIcon = L.icon({
+      iconUrl: 'https://cdn-icons-png.flaticon.com/512/744/744465.png', // Red car icon for occupied
+      iconSize: [32, 32],
+      iconAnchor: [16, 16],
+      popupAnchor: [0, -16]
+    });
+    const emptyIcon = L.icon({
+      iconUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="16" fill="green"/><text x="16" y="22" font-size="20" font-family="Arial" fill="white" text-anchor="middle" font-weight="bold">P</text></svg>', // Green P parking icon for vacant
+      iconSize: [24, 24],
+      iconAnchor: [12, 12],
+      popupAnchor: [0, -12]
+    });
+    const unknownIcon = L.icon({
+      iconUrl: 'https://cdn-icons-png.flaticon.com/512/565/565547.png', // Use empty icon for undetermined
+      iconSize: [24, 24],
+      iconAnchor: [12, 12],
+      popupAnchor: [0, -12]
+    });
+
+    data.forEach(bay => {
+      // Get customer name from first record
+      if (!customerName && bay.customerName) {
+        customerName = bay.customerName;
+      }
+      
+      if (bay.lat && bay.lng) {
+        total++;
+        const intensity = bay.heat_intensity || 0.6;
+
+        if (bay.status === "occupied") {
+          occupied++;
+          occupiedHeat.push([bay.lat, bay.lng, intensity]);
+        } else if (bay.status === "vacant") {
+          vacant++;
+          vacantHeat.push([bay.lat, bay.lng, intensity]);
+        }
+
+        // Choose icon based on status
+        let icon = unknownIcon;
+        if (bay.status === "occupied") icon = carIcon;
+        else if (bay.status === "vacant") icon = emptyIcon;
+
+        // Use L.marker with custom icon
+        const marker = L.marker([bay.lat, bay.lng], { icon })
+          .bindPopup(`
+            <b>Bay ${bay.id}</b><br>
+            Status: <strong>${bay.status}</strong><br>
+            Last Seen: ${bay.lastSeen}<br>
+            Carpark: ${bay.name}
+          `)
+          .addTo(map);
+
+        markers.push(marker);
+        bounds.push([bay.lat, bay.lng]);
+      }
+    });
+
+    heatLayerRed = L.heatLayer(occupiedHeat, {
+      radius: 20, blur: 15, minOpacity: 0.2,
+      gradient: { 0.2: 'orange', 0.4: 'orangered', 0.6: 'red', 0.9: 'darkred' }
+    }).addTo(map);
+
+    heatLayerGreen = L.heatLayer(vacantHeat, {
+      radius: 20, blur: 15, minOpacity: 0.2,
+      gradient: { 0.2: 'lightgreen', 0.4: 'lime', 0.6: 'green', 0.9: 'darkgreen' }
+    }).addTo(map);
+
+    if (bounds.length > 0) {
+      map.fitBounds(bounds);
+    } else {
+      map.setView([-37.7998, 144.8936], 18);
+    }
+
+    const pct = total > 0 ? Math.round((occupied / total) * 100) : 0;
+    const now = new Date().toLocaleTimeString();
+    document.getElementById('summary').innerHTML = `
+      <strong>Total:</strong> ${total} |
+      <strong>Occupied:</strong> ${occupied} |
+      <strong>Vacant:</strong> ${vacant} |
+      <strong>% Occupied:</strong> ${pct}% |
+      <em>Last updated:</em> ${now}
+    `;
+    
+    // Update customer name
+    document.getElementById('customerName').textContent = customerName || 'Customer Name Not Available';
+  }
+
+  async function fetchDataAndUpdateMap() {
+  try {
+    const response = await fetch('http://localhost:5000/api/occupancy');
+    const data = await response.json();
+    console.log("📦 Data received from API:", data);
+    updateMap(data);
+  } catch (error) {
+    console.error("❌ Error fetching occupancy data:", error);
+  }
+}
+
+
+  fetchDataAndUpdateMap();
+  setInterval(fetchDataAndUpdateMap, 60000); // every minute
+</script>
+
+</body>
+</html>
