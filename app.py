@@ -31,7 +31,7 @@ def serve_index():
 
 @app.route('/api/occupancy', methods=['GET'])
 def get_occupancy():
-    query = """
+    occupancy_query = """
         SELECT 
             OP.BayIndex AS id,
             DATEADD(HOUR, 10, EventTimeUtc) AS lastSeen,
@@ -49,21 +49,23 @@ def get_occupancy():
         WHERE OP.TenantId = 28
           AND CAST(DATEADD(HOUR, 10, EventTimeUtc) AS DATE) = CAST(DATEADD(HOUR, 10, GETDATE()) AS DATE)
     """
+    total_query = """
+        SELECT COUNT(*) FROM [dbo].[Bay_info_all] WHERE TenantId = 28
+    """
 
     try:
         with pyodbc.connect(conn_str) as conn:
             cursor = conn.cursor()
-            cursor.execute(query)
+            # Get occupancy data
+            cursor.execute(occupancy_query)
             columns = [col[0] for col in cursor.description]
             rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
-
             for row in rows:
-                # Assign same default heat intensity (0.6) for now
-                # You can later vary based on time since lastSeen or event frequency
                 row["heat_intensity"] = 0.6
-
-        return jsonify(rows)
-
+            # Get total bay count
+            cursor.execute(total_query)
+            total = cursor.fetchone()[0]
+        return jsonify({"total": total, "bays": rows})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

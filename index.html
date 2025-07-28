@@ -128,7 +128,8 @@
   }
 
   function updateMap(data) {
-    if (!Array.isArray(data)) return;
+    // Use new API response structure: { total, bays }
+    if (!data || !Array.isArray(data.bays)) return;
 
     if (heatLayerRed) map.removeLayer(heatLayerRed);
     if (heatLayerGreen) map.removeLayer(heatLayerGreen);
@@ -136,52 +137,47 @@
     markers = [];
 
     const occupiedHeat = [], vacantHeat = [], bounds = [];
-    let total = 0, occupied = 0, vacant = 0;
+    let occupied = 0, vacant = 0;
     let customerName = '';
+    const total = data.total || 0;
 
     // Define custom icons
     const carIcon = L.icon({
-      iconUrl: 'https://cdn-icons-png.flaticon.com/512/744/744465.png', // Red car icon for occupied
+      iconUrl: 'https://cdn-icons-png.flaticon.com/512/744/744465.png',
       iconSize: [32, 32],
       iconAnchor: [16, 16],
       popupAnchor: [0, -16]
     });
     const emptyIcon = L.icon({
-      iconUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="16" fill="green"/><text x="16" y="22" font-size="20" font-family="Arial" fill="white" text-anchor="middle" font-weight="bold">P</text></svg>', // Green P parking icon for vacant
+      iconUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="16" fill="green"/><text x="16" y="22" font-size="20" font-family="Arial" fill="white" text-anchor="middle" font-weight="bold">P</text></svg>',
       iconSize: [24, 24],
       iconAnchor: [12, 12],
       popupAnchor: [0, -12]
     });
     const unknownIcon = L.icon({
-      iconUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="16" fill="gray"/><text x="16" y="22" font-size="20" font-family="Arial" fill="white" text-anchor="middle" font-weight="bold">?</text></svg>', // Use empty icon for undetermined
+      iconUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="16" fill="gray"/><text x="16" y="22" font-size="20" font-family="Arial" fill="white" text-anchor="middle" font-weight="bold">?</text></svg>',
       iconSize: [24, 24],
       iconAnchor: [12, 12],
       popupAnchor: [0, -12]
     });
 
-    data.forEach(bay => {
+    data.bays.forEach(bay => {
       // Get customer name from first record
       if (!customerName && bay.customerName) {
         customerName = bay.customerName;
       }
-      
       if (bay.lat && bay.lng) {
-        total++;
-        const intensity = bay.heat_intensity || 0.6;
-
         if (bay.status === "occupied") {
           occupied++;
-          occupiedHeat.push([bay.lat, bay.lng, intensity]);
+          occupiedHeat.push([bay.lat, bay.lng, bay.heat_intensity || 0.6]);
         } else if (bay.status === "vacant") {
           vacant++;
-          vacantHeat.push([bay.lat, bay.lng, intensity]);
+          vacantHeat.push([bay.lat, bay.lng, bay.heat_intensity || 0.6]);
         }
-
         // Choose icon based on status
         let icon = unknownIcon;
         if (bay.status === "occupied") icon = carIcon;
         else if (bay.status === "vacant") icon = emptyIcon;
-
         // Use L.marker with custom icon
         const marker = L.marker([bay.lat, bay.lng], { icon })
           .bindPopup(`
@@ -191,7 +187,6 @@
             Carpark: ${bay.name}
           `)
           .addTo(map);
-
         markers.push(marker);
         bounds.push([bay.lat, bay.lng]);
       }
@@ -223,21 +218,20 @@
       <strong>% Occupied:</strong> ${pct}% |
       <em>Last updated (Sydney):</em> ${now}
     `;
-    
     // Update customer name
     document.getElementById('customerName').textContent = customerName || 'Customer Name Not Available';
   }
 
   async function fetchDataAndUpdateMap() {
-  try {
-    const response = await fetch('/api/occupancy');
-    const data = await response.json();
-    console.log("📦 Data received from API:", data);
-    updateMap(data);
-  } catch (error) {
-    console.error("❌ Error fetching occupancy data:", error);
+    try {
+      const response = await fetch('/api/occupancy');
+      const data = await response.json();
+      console.log("📦 Data received from API:", data);
+      updateMap(data);
+    } catch (error) {
+      console.error("❌ Error fetching occupancy data:", error);
+    }
   }
-}
 
 
   fetchDataAndUpdateMap();
