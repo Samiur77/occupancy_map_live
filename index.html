@@ -214,13 +214,14 @@
     }
 
     const pct = total > 0 ? Math.round((occupied / total) * 100) : 0;
-    const now = new Date().toLocaleTimeString();
+    // Get Sydney time
+    const now = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Sydney', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
     document.getElementById('summary').innerHTML = `
       <strong>Total:</strong> ${total} |
       <strong>Occupied:</strong> ${occupied} |
       <strong>Vacant:</strong> ${vacant} |
       <strong>% Occupied:</strong> ${pct}% |
-      <em>Last updated:</em> ${now}
+      <em>Last updated (Sydney):</em> ${now}
     `;
     
     // Update customer name
